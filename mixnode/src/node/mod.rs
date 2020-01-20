@@ -6,6 +6,7 @@ use curve25519_dalek::scalar::Scalar;
 use futures::channel::mpsc;
 use futures::lock::Mutex;
 use futures::SinkExt;
+use log::error;
 use sphinx::header::delays::Delay as SphinxDelay;
 use sphinx::{ProcessedPacket, SphinxPacket};
 use std::net::SocketAddr;
@@ -38,6 +39,7 @@ impl Config {
 pub enum MixProcessingError {
     SphinxRecoveryError,
     ReceivedFinalHopError,
+    SphinxProcessingError,
 }
 
 impl From<sphinx::ProcessingError> for MixProcessingError {
@@ -114,10 +116,14 @@ impl PacketProcessor {
         let packet = SphinxPacket::from_bytes(packet_data.to_vec())?;
         let (next_packet, next_hop_address, delay) =
             match packet.process(processing_data.secret_key) {
-                ProcessedPacket::ProcessedPacketForwardHop(packet, address, delay) => {
+                Ok(ProcessedPacket::ProcessedPacketForwardHop(packet, address, delay)) => {
                     (packet, address, delay)
                 }
-                _ => return Err(MixProcessingError::ReceivedFinalHopError),
+                Ok(_) => return Err(MixProcessingError::ReceivedFinalHopError),
+                Err(e) => {
+                    error!("Failed to unwrap Sphinx packet: {:?}", e);
+                    return Err(MixProcessingError::SphinxProcessingError);
+                }
             };
 
         let next_mix = MixPeer::new(next_hop_address);

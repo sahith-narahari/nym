@@ -1,5 +1,6 @@
 use crate::provider::storage::StoreData;
 use crypto::identity::DummyMixIdentityPrivateKey;
+use log::error;
 use sphinx::{ProcessedPacket, SphinxPacket};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -9,6 +10,7 @@ use std::sync::{Arc, RwLock};
 #[derive(Debug)]
 pub enum MixProcessingError {
     SphinxRecoveryError,
+    SphinxProcessingError,
     ReceivedForwardHopError,
     InvalidPayload,
     NonMatchingRecipient,
@@ -63,10 +65,14 @@ impl MixPacketProcessor {
         let read_processing_data = processing_data.read().unwrap();
         let (client_address, client_surb_id, payload) =
             match packet.process(read_processing_data.secret_key.as_scalar()) {
-                ProcessedPacket::ProcessedPacketFinalHop(client_address, surb_id, payload) => {
+                Ok(ProcessedPacket::ProcessedPacketFinalHop(client_address, surb_id, payload)) => {
                     (client_address, surb_id, payload)
                 }
-                _ => return Err(MixProcessingError::ReceivedForwardHopError),
+                Ok(_) => return Err(MixProcessingError::ReceivedForwardHopError),
+                Err(e) => {
+                    error!("Error unwrapping Sphinx packet: {:?}", e);
+                    return Err(MixProcessingError::SphinxProcessingError);
+                }
             };
 
         // TODO: should provider try to be recovering plaintext? this would potentially make client retrieve messages of non-constant length,
